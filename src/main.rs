@@ -1,9 +1,9 @@
 use axum::{
+    Router,
     extract::Path,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
@@ -37,8 +37,10 @@ type Result<T> = std::result::Result<T, AppError>;
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing for logging
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "turserver=debug,tower_http=debug".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "turserver=debug,tower_http=debug".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 

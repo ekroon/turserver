@@ -43,8 +43,10 @@ The server will use Axum, a Rust web framework, to handle HTTP requests. Files w
 - [X] Setup CI
   - bin/ci file
   - GitHub action
-- [ ] Create basic SQLite / Turso setup in code
+- [X] Create basic SQLite / Turso setup in code
   - Establish database connection
+  - Add test cases
+- [ ] Enhance Turso setup
   - Handle connection pooling
   - Set up initialization process
 

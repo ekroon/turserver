@@ -9,7 +9,7 @@ description = "A webserver that serves files from Turso embedded database replic
 axum = "0.8.3"
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["trace"] }
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.44.2", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.114"
 tracing = "0.1.40"

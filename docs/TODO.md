@@ -46,9 +46,10 @@ The server will use Axum, a Rust web framework, to handle HTTP requests. Files w
 - [X] Create basic SQLite / Turso setup in code
   - Establish database connection
   - Add test cases
-- [ ] Enhance Turso setup
+- [X] Enhance Turso setup
   - Handle connection pooling
   - Set up initialization process
+- [ ] Turso embedded replica
 
 ### Phase 2: Database Schema and File Management
 

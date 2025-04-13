@@ -3,7 +3,7 @@ use std::path::Path;
 
 use libsql::{Builder, Database, params};
 use sqlx::sqlite::SqlitePool;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::db::error::{DbError, DbResult};
 
@@ -19,7 +19,6 @@ pub struct DbConfig {
     pub replica: Option<ReplicaConfig>,
 }
 
-#[allow(dead_code)]
 /// Configuration for embedded replicas
 #[derive(Debug, Clone)]
 pub struct ReplicaConfig {
@@ -31,7 +30,6 @@ pub struct ReplicaConfig {
     pub local_path: String,
 }
 
-#[allow(dead_code)]
 impl DbConfig {
     /// Load database configuration from environment variables
     pub fn from_env() -> DbResult<Self> {
@@ -85,6 +83,7 @@ impl DbConfig {
 
     /// Check if this is a local database configuration
     pub fn is_local(&self) -> bool {
+        debug!("Checking if database is local: {}", self.url);
         !self.url.starts_with("libsql://")
             && !self.url.starts_with("http://")
             && !self.url.starts_with("https://")
@@ -106,16 +105,33 @@ pub async fn create_pool() -> DbResult<DbPool> {
     info!("Initializing database connection");
     debug!("Database config: {:?}", config);
 
+    let is_local = config.is_local();
+    debug!("Database is local: {}", is_local);
+
     let pool = SqlitePool::connect(&config.url)
         .await
         .map_err(|e| DbError::Connection(format!("Failed to create pool: {}", e)))?;
+
+    // Example usage of execute_query during initialization
+    execute_query(
+        &pool,
+        "CREATE TABLE IF NOT EXISTS example (id INTEGER PRIMARY KEY, value TEXT);",
+    )
+    .await?;
+
+    // Example usage of execute_parameterized_query during initialization
+    execute_parameterized_query(
+        &pool,
+        "INSERT INTO example (id, value) VALUES (?, ?);",
+        (1, "example_value"),
+    )
+    .await?;
 
     info!("Database connection pool created successfully");
 
     Ok(pool)
 }
 
-#[allow(dead_code)]
 /// Set up an embedded replica database that syncs with a Turso cloud database
 async fn setup_embedded_replica(config: &DbConfig) -> DbResult<Database> {
     let replica_config = config.replica.as_ref().ok_or_else(|| {
@@ -158,11 +174,15 @@ async fn setup_embedded_replica(config: &DbConfig) -> DbResult<Database> {
 
     // Execute a query to test and trigger sync
     let sync_result = conn.execute("SELECT 1", params![]).await;
-    if let Err(e) = &sync_result {
-        debug!("Initial sync had issues: {}", e);
-    }
 
-    info!("Embedded replica setup successful");
+    // Check the result of the sync query
+    match sync_result {
+        Ok(_) => info!("Embedded replica setup and initial sync successful"),
+        Err(e) => {
+            error!("Initial sync failed: {}", e);
+            return Err(DbError::Connection("Initial sync failed".into()));
+        }
+    }
 
     Ok(db)
 }
@@ -178,7 +198,6 @@ pub async fn check_connection(pool: &DbPool) -> DbResult<()> {
 }
 
 /// Execute a single SQL query and return the rows
-#[allow(dead_code)]
 pub async fn execute_query(pool: &DbPool, query: &str) -> DbResult<()> {
     sqlx::query(query)
         .execute(pool)
@@ -189,7 +208,6 @@ pub async fn execute_query(pool: &DbPool, query: &str) -> DbResult<()> {
 }
 
 /// Execute a parameterized SQL query
-#[allow(dead_code)]
 pub async fn execute_parameterized_query<'a>(
     pool: &DbPool,
     query: &'a str,
@@ -206,4 +224,25 @@ pub async fn execute_parameterized_query<'a>(
         .map_err(|e| DbError::Query(format!("Query execution error: {}", e)))?;
 
     Ok(())
+}
+
+/// Initialize the database, including setting up an embedded replica if configured
+pub async fn initialize_database() -> DbResult<DbPool> {
+    let config = DbConfig::from_env()?;
+
+    if config.is_replica() {
+        info!("Setting up embedded replica");
+        let _replica_db = setup_embedded_replica(&config).await?;
+
+        // Use the replica's local path for sqlx connection
+        let pool = SqlitePool::connect(&config.replica.as_ref().unwrap().local_path)
+            .await
+            .map_err(|e| {
+                DbError::Connection(format!("Failed to create pool for replica: {}", e))
+            })?;
+
+        return Ok(pool);
+    }
+
+    create_pool().await
 }

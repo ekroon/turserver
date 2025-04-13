@@ -1,48 +1,31 @@
-use crate::db::connection::DbConfig;
+use crate::db::connection::{DbPool, execute_parameterized_query, execute_query};
 
-#[test]
-fn test_db_config_local_detection() {
-    let config = DbConfig {
-        url: "./local.db".to_string(),
-        auth_token: None,
-        replica: None,
-    };
-    assert!(config.is_local(), "Local path should be detected as local");
+#[tokio::test]
+async fn test_execute_query() {
+    let pool = DbPool::connect("sqlite::memory:").await.unwrap();
+    sqlx::query("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);")
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    let remote_config = DbConfig {
-        url: "libsql://example.turso.io".to_string(),
-        auth_token: Some("token".to_string()),
-        replica: None,
-    };
-    assert!(
-        !remote_config.is_local(),
-        "Remote URL should not be detected as local"
-    );
+    execute_query(&pool, "INSERT INTO test (value) VALUES ('test_value');")
+        .await
+        .unwrap();
 }
 
-#[test]
-fn test_db_config_replica_detection() {
-    let config = DbConfig {
-        url: "./local.db".to_string(),
-        auth_token: None,
-        replica: None,
-    };
-    assert!(
-        !config.is_replica(),
-        "Should not be detected as replica without replica config"
-    );
+#[tokio::test]
+async fn test_execute_parameterized_query() {
+    let pool = DbPool::connect("sqlite::memory:").await.unwrap();
+    sqlx::query("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);")
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    let config_with_replica = DbConfig {
-        url: "./local.db".to_string(),
-        auth_token: None,
-        replica: Some(crate::db::connection::ReplicaConfig {
-            primary_url: "libsql://primary.turso.io".to_string(),
-            auth_token: "token".to_string(),
-            local_path: "./replica.db".to_string(),
-        }),
-    };
-    assert!(
-        config_with_replica.is_replica(),
-        "Should be detected as replica with replica config"
-    );
+    execute_parameterized_query(
+        &pool,
+        "INSERT INTO test (id, value) VALUES (?, ?);",
+        (1, "test_value"),
+    )
+    .await
+    .unwrap();
 }

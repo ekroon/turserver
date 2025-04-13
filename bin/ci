@@ -3,14 +3,17 @@ set -e
 
 # CI script for Turserver project
 
-echo "===> Running format check"
-cargo fmt --all -- --check
-
 echo "===> Running clippy"
 cargo clippy --all-targets --all-features -- -D warnings
 
 echo "===> Running tests"
 cargo test --all-features
+
+echo "===> Running quick build"
+cargo build
+
+echo "===> Running format check"
+cargo fmt --all -- --check
 
 echo "===> Building release"
 cargo build --release

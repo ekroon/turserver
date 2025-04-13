@@ -11,9 +11,11 @@ mod error_tests;
 pub use connection::DbPool;
 pub use error::{DbError, DbResult};
 
-/// Initialize the database connection pool
+/// Initialize the database connection pool and run migrations
 pub async fn init() -> DbResult<DbPool> {
-    connection::create_pool().await
+    let pool = connection::create_pool().await?;
+    run_migrations(&pool).await?;
+    Ok(pool)
 }
 
 /// Run database migrations

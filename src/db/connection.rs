@@ -1,13 +1,13 @@
 use std::env;
 use std::path::Path;
-use std::sync::Arc;
 
-use libsql::{Builder, Database, Value, params};
-use tokio::sync::Mutex;
+use libsql::{Builder, Database, params};
+use sqlx::sqlite::SqlitePool;
 use tracing::{debug, info};
 
 use crate::db::error::{DbError, DbResult};
 
+#[allow(dead_code)]
 /// Database configuration
 #[derive(Debug, Clone)]
 pub struct DbConfig {
@@ -19,6 +19,7 @@ pub struct DbConfig {
     pub replica: Option<ReplicaConfig>,
 }
 
+#[allow(dead_code)]
 /// Configuration for embedded replicas
 #[derive(Debug, Clone)]
 pub struct ReplicaConfig {
@@ -30,6 +31,7 @@ pub struct ReplicaConfig {
     pub local_path: String,
 }
 
+#[allow(dead_code)]
 impl DbConfig {
     /// Load database configuration from environment variables
     pub fn from_env() -> DbResult<Self> {
@@ -95,7 +97,7 @@ impl DbConfig {
 }
 
 /// Database connection pool
-pub type DbPool = Arc<Mutex<Database>>;
+pub type DbPool = SqlitePool;
 
 /// Create a new database connection pool
 pub async fn create_pool() -> DbResult<DbPool> {
@@ -104,51 +106,16 @@ pub async fn create_pool() -> DbResult<DbPool> {
     info!("Initializing database connection");
     debug!("Database config: {:?}", config);
 
-    let db = if config.is_replica() {
-        debug!("Setting up embedded replica database");
-        setup_embedded_replica(&config).await?
-    } else if config.is_local() {
-        debug!("Using local database at: {}", config.url);
-        // For local SQLite file
-        Builder::new_local(&config.url)
-            .build()
-            .await
-            .map_err(|e| DbError::Connection(format!("Failed to build local database: {}", e)))?
-    } else {
-        debug!("Using remote Turso database at: {}", config.url);
-        let auth_token = config.auth_token.ok_or_else(|| {
-            DbError::Configuration(
-                "DATABASE_AUTH_TOKEN is required for remote Turso database".into(),
-            )
-        })?;
+    let pool = SqlitePool::connect(&config.url)
+        .await
+        .map_err(|e| DbError::Connection(format!("Failed to create pool: {}", e)))?;
 
-        // Create a remote connection
-        Builder::new_remote(config.url.clone(), auth_token.clone())
-            .build()
-            .await
-            .map_err(|e| DbError::Connection(format!("Failed to build remote database: {}", e)))?
-    };
+    info!("Database connection pool created successfully");
 
-    // Test the connection with a basic query
-    let conn = db
-        .connect()
-        .map_err(|e| DbError::Connection(format!("Failed to connect to database: {}", e)))?;
-
-    // Execute a test query to ensure the database is operational
-    if let Err(e) = conn.execute("SELECT 1", params![]).await {
-        if e.to_string() != "Execute returned rows" {
-            return Err(DbError::Connection(format!(
-                "Failed to execute test query: {}",
-                e
-            )));
-        }
-    }
-
-    info!("Database connection successful");
-
-    Ok(Arc::new(Mutex::new(db)))
+    Ok(pool)
 }
 
+#[allow(dead_code)]
 /// Set up an embedded replica database that syncs with a Turso cloud database
 async fn setup_embedded_replica(config: &DbConfig) -> DbResult<Database> {
     let replica_config = config.replica.as_ref().ok_or_else(|| {
@@ -202,13 +169,8 @@ async fn setup_embedded_replica(config: &DbConfig) -> DbResult<Database> {
 
 /// Check database connection health
 pub async fn check_connection(pool: &DbPool) -> DbResult<()> {
-    let db = pool.lock().await;
-
-    let conn = db
-        .connect()
-        .map_err(|e| DbError::Connection(format!("Failed to connect to database: {}", e)))?;
-
-    conn.execute("SELECT 1", params![])
+    sqlx::query("SELECT 1")
+        .execute(pool)
         .await
         .map_err(|e| DbError::Connection(format!("Failed to execute test query: {}", e)))?;
 
@@ -217,32 +179,31 @@ pub async fn check_connection(pool: &DbPool) -> DbResult<()> {
 
 /// Execute a single SQL query and return the rows
 #[allow(dead_code)]
-pub async fn execute_query(pool: &DbPool, query: &str) -> DbResult<libsql::Statement> {
-    let db = pool.lock().await;
-
-    let conn = db
-        .connect()
-        .map_err(|e| DbError::Connection(format!("Failed to connect to database: {}", e)))?;
-
-    conn.prepare(query)
+pub async fn execute_query(pool: &DbPool, query: &str) -> DbResult<()> {
+    sqlx::query(query)
+        .execute(pool)
         .await
-        .map_err(|e| DbError::Query(format!("Query preparation error: {}", e)))
+        .map_err(|e| DbError::Query(format!("Query execution error: {}", e)))?;
+
+    Ok(())
 }
 
 /// Execute a parameterized SQL query
 #[allow(dead_code)]
-pub async fn execute_parameterized_query(
+pub async fn execute_parameterized_query<'a>(
     pool: &DbPool,
-    query: &str,
-    _params: &[Value],
-) -> DbResult<libsql::Statement> {
-    let db = pool.lock().await;
-
-    let conn = db
-        .connect()
-        .map_err(|e| DbError::Connection(format!("Failed to connect to database: {}", e)))?;
-
-    conn.prepare(query)
+    query: &'a str,
+    params: (
+        impl sqlx::Encode<'a, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite> + Send + 'a,
+        impl sqlx::Encode<'a, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite> + Send + 'a,
+    ),
+) -> DbResult<()> {
+    sqlx::query(query)
+        .bind(params.0)
+        .bind(params.1)
+        .execute(pool)
         .await
-        .map_err(|e| DbError::Query(format!("Query preparation error: {}", e)))
+        .map_err(|e| DbError::Query(format!("Query execution error: {}", e)))?;
+
+    Ok(())
 }

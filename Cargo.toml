@@ -18,6 +18,7 @@ anyhow = "1.0.80"
 thiserror = "2.0.12"
 libsql = { version = "0.9.1", features = ["replication"] }
 dotenv = "0.15.0"
+sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
 
 # Force resolution of dependencies to avoid conflicts
 [package.metadata.resolutions]
